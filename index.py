@@ -78,6 +78,8 @@ def build_index(input_doc_path, output_file_d, output_file_p):
     dictionary["DOCUMENT_COUNT"] = len(doc_names)
     dictionary["DOCUMENT_NORM_FACTORS"] = doc_norm_factors
     write_dictionary(dictionary, dictionary_file)
+    dictionary_file.close()
+    postings_file.close()
 
 
 def usage():

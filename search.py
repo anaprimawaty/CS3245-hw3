@@ -5,6 +5,7 @@ import sys
 import nltk
 import pickle
 import math
+import heapq
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.stem.porter import *
 
@@ -23,9 +24,14 @@ def search_index(dictionary_file, postings_file, queries_file, output_file):
             search_results.write("\n")
         else:
             score_dict = get_scores(query, dictionary, postings_list)
-            print score_dict
-            # if index != len(query_list) - 1:
-            #     search_results.write("\n")
+            heap = [(score, doc_id) for doc_id, score in score_dict.items()]
+            top_results = heapq.nlargest(10, heap)
+            search_results.write(stringify(top_results))
+            if index != len(query_list) - 1:
+                search_results.write("\n")
+
+    postings_list.close()
+    search_results.close()
 
 
 def get_scores(query_str, dictionary, postings_list):
@@ -101,7 +107,7 @@ def get_posting_list(freq, pointer, postings_list):
 def stringify(list):
     ans = ""
     for element in list:
-        ans += str(element) + " "
+        ans += str(element[1]) + " "
     return ans.strip()
 
 
