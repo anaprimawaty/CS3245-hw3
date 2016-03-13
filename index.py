@@ -2,6 +2,7 @@ import os
 import getopt
 import sys
 import nltk
+import math
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.stem.porter import *
 import pickle
@@ -45,26 +46,24 @@ def build_index(input_doc_path, output_file_d, output_file_p):
     stemmer = PorterStemmer()
     dictionary = {}
     postings = {}
-    doc_lengths = {}
+    doc_norm_factors = {}
 
     doc_names = get_doc_names(input_doc_path)
 
     for doc_name in doc_names:
         doc = open(input_doc_path + '/' + doc_name, 'r').read()
         doc_dictionary = {}
-        doc_length = 0
+        norm_factor = 0
         for sentence in sent_tokenize(doc):
             for word in word_tokenize(sentence):
-                doc_length += 1
                 token = stemmer.stem(word).lower()
                 if token in doc_dictionary:
                     doc_dictionary[token] += 1
                 else:
                     doc_dictionary[token] = 1
-
-        doc_lengths[doc_name] = doc_length
-
-        for term in doc_dictionary:
+        for term, term_freq in doc_dictionary.iteritems():
+            doc_tf = 1 + math.log10(term_freq)
+            norm_factor += math.pow(doc_tf, 2)
             if term not in dictionary:
                 dictionary[term] = (1, len(postings))
                 term_frequency = doc_dictionary[term]
@@ -74,10 +73,10 @@ def build_index(input_doc_path, output_file_d, output_file_p):
                 pointer = dictionary[term][1]
                 dictionary[term] = (freq + 1, pointer)
                 postings[pointer].append((doc_name, term_frequency))
-
+        doc_norm_factors[doc_name] = math.pow(norm_factor, 0.5)
     dictionary = write_postings(dictionary, postings, postings_file)
     dictionary["DOCUMENT_COUNT"] = len(doc_names)
-    dictionary["DOCUMENT_LENGTHS"] = doc_lengths
+    dictionary["DOCUMENT_NORM_FACTORS"] = doc_norm_factors
     write_dictionary(dictionary, dictionary_file)
 
 

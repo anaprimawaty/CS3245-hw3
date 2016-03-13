@@ -1,13 +1,12 @@
+from __future__ import division
 import os
 import getopt
 import sys
 import nltk
 import pickle
+import math
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.stem.porter import *
-from sets import Set
-from shunting_yard import *
-from merge import *
 
 
 # Function that loops through each line in query file,
@@ -20,73 +19,82 @@ def search_index(dictionary_file, postings_file, queries_file, output_file):
 
     for index, query in enumerate(query_list):
         # in case blank line is caught as a query, write an empty line
-        if query != "":
-            query_obj = get_query_obj(query, dictionary)
-            output_list = process_query_obj(query_obj, dictionary, postings_list)
-            search_results.write(stringify(output_list))
-            if index != len(query_list) - 1:
-                search_results.write("\n")
-        else:
+        if query == "":
             search_results.write("\n")
-
-
-# Function that takes in Query object, dictionary and postings lists
-# to output result of query
-# by recursively unwrapping Query objects and performing merges 
-# until base case of Word object is reached
-def process_query_obj(query_obj, dictionary, postings_list):
-    all_doc_ids = dictionary["ALL_TERMS"]
-
-    if isinstance(query_obj, Word):
-        term = query_obj.value
-        if term in dictionary:
-            freq = dictionary[term][0]
-            pointer = dictionary[term][1]
-            posting_list = get_posting_list(freq, pointer, postings_list)
-            if query_obj.is_not:
-                posting_list = negate(posting_list, all_doc_ids)
-            return posting_list
-        elif query_obj.is_not:
-            return all_doc_ids
         else:
-            return []
+            score_dict = get_scores(query, dictionary, postings_list)
+            print score_dict
+            # if index != len(query_list) - 1:
+            #     search_results.write("\n")
 
-    elif isinstance(query_obj, Query):
-        posting_list1 = process_query_obj(query_obj.value1, dictionary, postings_list)
-        posting_list2 = process_query_obj(query_obj.value2, dictionary, postings_list)
-        results_list = merge(posting_list1, posting_list2, query_obj.op)
-        if query_obj.is_not:
-            results_list = negate(results_list, all_doc_ids)
-        return results_list
+
+def get_scores(query_str, dictionary, postings_list):
+    total_doc_count = dictionary["DOCUMENT_COUNT"]
+    doc_norm_factors = dictionary["DOCUMENT_NORM_FACTORS"]
+    score_dict = {}
+    # for computing final normalizing values
+    query_norm_factor = 0
+    query_dict = process_query(query_str)
+    for term in query_dict:
+        if term in dictionary:
+            # query computations
+            doc_freq = dictionary[term][0]
+            idf = math.log10(total_doc_count / doc_freq)
+            query_tf = 1 + math.log10(query_dict[term])
+            query_wt = idf * query_tf
+            query_norm_factor += math.pow(query_wt, 2)
+            # retrieving postings list for term
+            pointer = dictionary[term][1]
+            posting_list = get_posting_list(doc_freq, pointer, postings_list)
+            # document computations
+            for posting in posting_list:
+                doc_id = posting[0]
+                doc_tf = 1 + math.log10(posting[1])
+                score = doc_tf * query_wt
+                if doc_id in score_dict:
+                    score_dict[doc_id] += score
+                else:
+                    score_dict[doc_id] = score
+    return normalize(score_dict, query_norm_factor, doc_norm_factors)
+
+
+# Normalizes scoring dictionary
+def normalize(score_dict, query_norm_factor, doc_norm_factors):
+    query_norm_factor = math.pow(query_norm_factor, 0.5)
+    # # query_norm_factor will be zero only if idf for all query terms are zero
+    # # In this case we set idf to 1, to rely only on tf for scoring
+    # if query_norm_factor == 0:
+    #     query_norm_factor = 1
+    for doc_id, score in score_dict.iteritems():
+        norm_factor = doc_norm_factors[str(doc_id)] * query_norm_factor
+        score_dict[doc_id] = score / norm_factor
+    return score_dict
+
+
+# Converts query string into dictionary form
+def process_query(query_str):
+    stemmer = PorterStemmer()
+    query_list = query_str.split(" ")
+    query_dict = {}
+    for query in query_list:
+        query = stemmer.stem(query).lower()
+        if query in query_dict:
+            query_dict[query] += 1
+        else:
+            query_dict[query] = 1
+    return query_dict
 
 
 # Function that seeks, loads and returns a posting list
 def get_posting_list(freq, pointer, postings_list):
     postings_list.seek(pointer)
-    results_list = postings_list.read(freq * 15 - 1).split(" ")
+    results_list = postings_list.read(freq * 2 * 15 - 1).split(" ")
     results_list.pop()
     results_list = map((lambda x: int(x, 2)), results_list)
-    return results_list
-
-
-# Function that outputs a list with elements present in list2 but not in list1
-def negate(list1, list2):
-    result = []
-    ptr1 = 0
-    ptr2 = 0
-    while ptr1 < len(list1) and ptr2 < len(list2):
-        if list1[ptr1] == list2[ptr2]:
-            ptr1 += 1
-            ptr2 += 1
-        elif list1[ptr1] > list2[ptr2]:
-            result.append(list2[ptr2])
-            ptr2 += 1
-        else:
-            ptr1 += 1
-    while (ptr2 < len(list2)):
-            result.append(list2[ptr2])
-            ptr2 += 1
-    return result
+    tuple_list = []
+    for i in range(0, len(results_list), 2):
+        tuple_list.append((results_list[i], results_list[i + 1]))
+    return tuple_list
 
 
 # Function that converts list to string for writing to file
