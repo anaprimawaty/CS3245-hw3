@@ -28,7 +28,8 @@ def write_postings(dictionary, postings, postings_file):
         list_pointer = dictionary[term][1]
         postings_list = postings[list_pointer]
         for posting in postings_list:
-            postings_file.write(convert_to_bytes(posting) + " ")
+            postings_file.write(convert_to_bytes(posting[0]) + " ")
+            postings_file.write(convert_to_bytes(posting[1]) + " ")
         dictionary[term] = (freq, file_pointer)
     return dictionary
 
@@ -39,35 +40,44 @@ def convert_to_bytes(num):
 
 def build_index(input_doc_path, output_file_d, output_file_p):
     dictionary_file = open(output_file_d, 'wb')
-    postings_file = open(output_file_p, 'a')
+    postings_file = open(output_file_p, 'w')
 
     stemmer = PorterStemmer()
     dictionary = {}
     postings = {}
+    doc_lengths = {}
 
     doc_names = get_doc_names(input_doc_path)
 
     for doc_name in doc_names:
         doc = open(input_doc_path + '/' + doc_name, 'r').read()
-        term_list = set()
+        doc_dictionary = {}
+        doc_length = 0
         for sentence in sent_tokenize(doc):
             for word in word_tokenize(sentence):
+                doc_length += 1
                 token = stemmer.stem(word).lower()
-                term_list.add(token)
+                if token in doc_dictionary:
+                    doc_dictionary[token] += 1
+                else:
+                    doc_dictionary[token] = 1
 
-        for term in term_list:
+        doc_lengths[doc_name] = doc_length
+
+        for term in doc_dictionary:
             if term not in dictionary:
                 dictionary[term] = (1, len(postings))
-                postings[len(postings)] = [doc_name]
+                term_frequency = doc_dictionary[term]
+                postings[len(postings)] = [(doc_name, term_frequency)]
             else:
                 freq = dictionary[term][0]
                 pointer = dictionary[term][1]
                 dictionary[term] = (freq + 1, pointer)
-                postings[pointer].append(doc_name)
+                postings[pointer].append((doc_name, term_frequency))
 
     dictionary = write_postings(dictionary, postings, postings_file)
     dictionary["DOCUMENT_COUNT"] = len(doc_names)
-    dictionary["ALL_TERMS"] = map(int, doc_names)
+    dictionary["DOCUMENT_LENGTHS"] = doc_lengths
     write_dictionary(dictionary, dictionary_file)
 
 
