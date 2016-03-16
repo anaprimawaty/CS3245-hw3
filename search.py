@@ -1,80 +1,79 @@
 from __future__ import division
-import os
-import getopt
 import sys
-import nltk
-import pickle
+import getopt
+import os
 import math
 import heapq
+import pickle
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.stem.porter import *
 
+K = 10
+bits_per_posting = 30
 
-# Function that loops through each line in query file,
-# performs query and writes result of query to output file
+
+# For each line in query file, performs query and outputs result
 def search_index(dictionary_file, postings_file, queries_file, output_file):
     dictionary = pickle.load(open(dictionary_file, 'rb'))
-    postings_list = open(postings_file, 'r')
-    query_list = open(queries_file, 'r').read().split("\n")
+    postings_lists = open(postings_file, 'r')
+    queries_list = open(queries_file, 'r').read().split("\n")
     search_results = open(output_file, 'w')
 
-    for index, query in enumerate(query_list):
+    for index, query in enumerate(queries_list):
         # in case blank line is caught as a query, write an empty line
         if query == "":
             search_results.write("\n")
         else:
-            score_dict = get_scores(query, dictionary, postings_list)
-            heap = [(score, doc_id) for doc_id, score in score_dict.items()]
-            top_results = heapq.nlargest(10, heap)
+            scores_dict = get_scores_dict(query, dictionary, postings_lists)
+            heap = [(score, doc_id) for doc_id, score in scores_dict.items()]
+            top_results = heapq.nlargest(K, heap)
             search_results.write(stringify(top_results))
-            if index != len(query_list) - 1:
+            if index != len(queries_list) - 1:
                 search_results.write("\n")
 
-    postings_list.close()
+    postings_lists.close()
     search_results.close()
 
 
-def get_scores(query_str, dictionary, postings_list):
-    total_doc_count = dictionary["DOCUMENT_COUNT"]
+def get_scores_dict(query_str, dictionary, postings_lists):
+    doc_count = dictionary["DOCUMENT_COUNT"]
     doc_norm_factors = dictionary["DOCUMENT_NORM_FACTORS"]
-    score_dict = {}
-    # for computing final normalizing values
+    scores_dict = {}
+    # query_norm_factor is used to compute final normalising values
     query_norm_factor = 0
     query_dict = process_query(query_str)
     for term in query_dict:
         if term in dictionary:
             # query computations
-            doc_freq = dictionary[term][0]
-            idf = math.log10(total_doc_count / doc_freq)
-            query_tf = 1 + math.log10(query_dict[term])
-            query_wt = idf * query_tf
+            df = dictionary[term][0]
+            idf = math.log10(doc_count / df)
+            query_tf = query_dict[term]
+            query_tf_wt = 1 + math.log10(query_tf)
+            query_wt = idf * query_tf_wt
             query_norm_factor += math.pow(query_wt, 2)
             # retrieving postings list for term
-            pointer = dictionary[term][1]
-            posting_list = get_posting_list(doc_freq, pointer, postings_list)
+            term_pointer = dictionary[term][1]
+            postings_list = get_postings_list(df, term_pointer, postings_lists)
             # document computations
-            for posting in posting_list:
+            for posting in postings_list:
                 doc_id = posting[0]
-                doc_tf = 1 + math.log10(posting[1])
-                score = doc_tf * query_wt
-                if doc_id in score_dict:
-                    score_dict[doc_id] += score
+                doc_tf = posting[1]
+                doc_wt = 1 + math.log10(doc_tf)
+                score = query_wt * doc_wt
+                if doc_id in scores_dict:
+                    scores_dict[doc_id] += score
                 else:
-                    score_dict[doc_id] = score
-    return normalize(score_dict, query_norm_factor, doc_norm_factors)
-
-
-# Normalizes scoring dictionary
-def normalize(score_dict, query_norm_factor, doc_norm_factors):
+                    scores_dict[doc_id] = score
     query_norm_factor = math.pow(query_norm_factor, 0.5)
-    # # query_norm_factor will be zero only if idf for all query terms are zero
-    # # In this case we set idf to 1, to rely only on tf for scoring
-    # if query_norm_factor == 0:
-    #     query_norm_factor = 1
-    for doc_id, score in score_dict.iteritems():
+    return normalise(scores_dict, query_norm_factor, doc_norm_factors)
+
+
+# Normalises scores dictionary
+def normalise(scores_dict, query_norm_factor, doc_norm_factors):
+    for doc_id, score in scores_dict.iteritems():
         norm_factor = doc_norm_factors[str(doc_id)] * query_norm_factor
-        score_dict[doc_id] = score / norm_factor
-    return score_dict
+        scores_dict[doc_id] = score / norm_factor
+    return scores_dict
 
 
 # Converts query string into dictionary form
@@ -91,19 +90,18 @@ def process_query(query_str):
     return query_dict
 
 
-# Function that seeks, loads and returns a posting list
-def get_posting_list(freq, pointer, postings_list):
-    postings_list.seek(pointer)
-    results_list = postings_list.read(freq * 2 * 15 - 1).split(" ")
-    results_list.pop()
+# Seeks, loads and returns a postings list
+def get_postings_list(df, term_pointer, postings_lists):
+    postings_lists.seek(term_pointer)
+    results_list = postings_lists.read(df * bits_per_posting - 1).strip().split(" ")
     results_list = map((lambda x: int(x, 2)), results_list)
-    tuple_list = []
+    tuples_list = []
     for i in range(0, len(results_list), 2):
-        tuple_list.append((results_list[i], results_list[i + 1]))
-    return tuple_list
+        tuples_list.append((results_list[i], results_list[i + 1]))
+    return tuples_list
 
 
-# Function that converts list to string for writing to file
+# Converts list to string for writing to output file
 def stringify(list):
     ans = ""
     for element in list:
