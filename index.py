@@ -22,7 +22,7 @@ def write_dictionary(dictionary, dictionary_file):
 
 def write_postings(dictionary, postings_lists, postings_file):
     for term in dictionary:
-        file_pointer = postings_file.tell() + 1
+        file_pointer = postings_file.tell()
         df = dictionary[term][0]
         term_pointer = dictionary[term][1]
         postings_list = postings_lists[term_pointer]

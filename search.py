@@ -3,8 +3,9 @@ import sys
 import getopt
 import os
 import math
-import heapq
 import pickle
+import operator
+from operator import itemgetter
 from nltk.tokenize import sent_tokenize, word_tokenize
 from nltk.stem.porter import *
 
@@ -25,8 +26,7 @@ def search_index(dictionary_file, postings_file, queries_file, output_file):
             search_results.write("\n")
         else:
             scores_dict = get_scores_dict(query, dictionary, postings_lists)
-            heap = [(score, doc_id) for doc_id, score in scores_dict.items()]
-            top_results = heapq.nlargest(K, heap)
+            top_results = get_top_results(scores_dict)
             search_results.write(stringify(top_results))
             if index != len(queries_list) - 1:
                 search_results.write("\n")
@@ -34,6 +34,12 @@ def search_index(dictionary_file, postings_file, queries_file, output_file):
     postings_lists.close()
     search_results.close()
 
+
+def get_top_results(scores_dict):
+    tuples_list = [(doc_id, score) for doc_id, score in scores_dict.items()]
+    tuples_list.sort(key = operator.itemgetter(0))
+    tuples_list.sort(key = operator.itemgetter(1), reverse = True)
+    return tuples_list[:K]
 
 def get_scores_dict(query_str, dictionary, postings_lists):
     doc_count = dictionary["DOCUMENT_COUNT"]
@@ -93,7 +99,7 @@ def process_query(query_str):
 # Seeks, loads and returns a postings list
 def get_postings_list(df, term_pointer, postings_lists):
     postings_lists.seek(term_pointer)
-    results_list = postings_lists.read(df * bits_per_posting - 1).strip().split(" ")
+    results_list = postings_lists.read(df * bits_per_posting - 1).strip().split()
     results_list = map((lambda x: int(x, 2)), results_list)
     tuples_list = []
     for i in range(0, len(results_list), 2):
@@ -101,11 +107,11 @@ def get_postings_list(df, term_pointer, postings_lists):
     return tuples_list
 
 
-# Converts list to string for writing to output file
+# Converts list of tuples to string for writing to output file
 def stringify(list):
     ans = ""
     for element in list:
-        ans += str(element[1]) + " "
+        ans += str(element[0]) + " "
     return ans.strip()
 
 
